@@ -87,8 +87,11 @@ class BluepyConnection(Connection):
         self._peripheral = None  # :type BluepyThreadedPeripheral
         self._controller = controller
 
-    def connect(self, hub_mac=None):
-        log.debug("Trying to connect client to MoveHub with MAC: %s", hub_mac)
+    def connect(self, hub_mac=None, hub_name=None, prohibited_hub_mac=None, reset=True):
+        if hub_mac:
+            log.debug("Trying to connect client to hub with MAC: %s", hub_mac)
+        elif hub_name:
+            log.debug("Trying to connect client to hub with name: %s", hub_name)
         scanner = btle.Scanner()
 
         while not self._peripheral:
@@ -101,8 +104,10 @@ class BluepyConnection(Connection):
                 addressType = dev.addrType
                 name = dev.getValueText(COMPLETE_LOCAL_NAME_ADTYPE)
 
-                if self._is_device_matched(address, name, hub_mac):
+                if self._is_device_matched(address, name, hub_mac, hub_name, prohibited_hub_mac):
                     self._peripheral = BluepyThreadedPeripheral(address, addressType, self._controller)
+                    self.name = name
+                    self.address = address
                     break
 
         return self

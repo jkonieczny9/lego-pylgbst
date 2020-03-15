@@ -1,10 +1,14 @@
 # coding=utf-8
 import time
 from time import sleep
+import sys, os
+
+sys.path.insert(0, os.environ.get('PYLGBST_ROOT'))
 
 from pylgbst import *
 from pylgbst.hub import MoveHub
 from pylgbst.peripherals import EncodedMotor, TiltSensor, Current, Voltage, COLORS, COLOR_BLACK
+from pylgbst.comms import LEGO_TECHNIC_HUB
 
 log = logging.getLogger("demo")
 
@@ -162,11 +166,11 @@ def demo_voltage(movehub):
     def callback2(value):
         log.info("Voltage: %s", value)
 
-    movehub.current.subscribe(callback1, mode=Current.CURRENT_L, granularity=0)
-    movehub.current.subscribe(callback1, mode=Current.CURRENT_L, granularity=1)
+    movehub.current.subscribe(callback1, mode=Current.CURRENT_L, update_delta=0)
+    movehub.current.subscribe(callback1, mode=Current.CURRENT_L, update_delta=1)
 
-    movehub.voltage.subscribe(callback2, mode=Voltage.VOLTAGE_L, granularity=0)
-    movehub.voltage.subscribe(callback2, mode=Voltage.VOLTAGE_L, granularity=1)
+    movehub.voltage.subscribe(callback2, mode=Voltage.VOLTAGE_L, update_delta=0)
+    movehub.voltage.subscribe(callback2, mode=Voltage.VOLTAGE_L, update_delta=1)
     time.sleep(5)
     movehub.current.unsubscribe(callback1)
     movehub.voltage.unsubscribe(callback2)
@@ -240,6 +244,8 @@ def connection_from_url(url):
             params[key] = value[0]
         else:
             params[key] = value
+    if 'hub_mac' not in params and 'hub_name' not in params:
+        params['hub_name'] = LEGO_TECHNIC_HUB
     return factory(
         **params
     )

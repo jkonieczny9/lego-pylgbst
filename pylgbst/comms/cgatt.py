@@ -88,7 +88,7 @@ class GattConnection(Connection):
         self._manager_thread.setDaemon(True)
         log.debug('Starting DeviceManager...')
 
-    def connect(self, hub_mac=None):
+    def connect(self, hub_mac=None, hub_name=None, prohibited_hub_mac=None, reset=True):
         self._manager_thread.start()
         self._manager.start_discovery()
 
@@ -100,8 +100,10 @@ class GattConnection(Connection):
             for dev in devices:
                 address = dev.mac_address
                 name = dev.alias()
-                if self._is_device_matched(address, name, hub_mac):
+                if self._is_device_matched(address, name, hub_mac, hub_name, prohibited_hub_mac):
                     self._device = CustomDevice(address, self._manager)
+                    self.name = name
+                    self.address = address
                     break
 
             if not self._device:

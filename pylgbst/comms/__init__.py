@@ -15,17 +15,21 @@ from pylgbst.utilities import str2hex
 
 log = logging.getLogger('comms')
 
-LEGO_MOVE_HUB = "LEGO Move Hub"
-MOVE_HUB_HW_UUID_SERV = '00001623-1212-efde-1623-785feabcd123'
-MOVE_HUB_HW_UUID_CHAR = '00001624-1212-efde-1623-785feabcd123'
+LPF2_HUB_HW_UUID_SERV = '00001623-1212-efde-1623-785feabcd123'
+LPF2_HUB_HW_UUID_CHAR = '00001624-1212-efde-1623-785feabcd123'
 ENABLE_NOTIFICATIONS_HANDLE = 0x000f
 ENABLE_NOTIFICATIONS_VALUE = b'\x01\x00'
 
-MOVE_HUB_HARDWARE_HANDLE = 0x0E
+HUB_HARDWARE_HANDLE = 0x0E #JK: What is it?!
 
 
 class Connection(object):
-    def connect(self, hub_mac=None):
+    def __init__(self, controller='hci0'):
+        object.__init__(self)
+        self.name = None
+        self.address = None
+
+    def connect(self, hub_mac=None, hub_name=None, prohibited_hub_mac=None):
         pass
 
     @abstractmethod
@@ -46,18 +50,21 @@ class Connection(object):
     def enable_notifications(self):
         self.write(ENABLE_NOTIFICATIONS_HANDLE, ENABLE_NOTIFICATIONS_VALUE)
 
-    def _is_device_matched(self, address, name, hub_mac):
+    def _is_device_matched(self, address, name, hub_mac, hub_name, prohibited_hub_mac):
         log.debug("Checking device name: %s, MAC: %s", name, address)
         matched = False
-        if address != "00:00:00:00:00:00":
-            if hub_mac:
-                if hub_mac.lower() == address.lower():
-                    matched = True
-            elif name == LEGO_MOVE_HUB:
-                matched = True
+        if prohibited_hub_mac:
+            if not isinstance(prohibited_hub_mac, (list, tuple)):
+                prohibited_hub_mac = [prohibited_hub_mac,]
+            if address.lower() in [mac.lower() for mac in prohibited_hub_mac]:
+                return False
+        if hub_mac and address != "00:00:00:00:00:00" and hub_mac.lower() == address.lower():
+            matched = True
+        if not matched and hub_name and name == hub_name:
+            matched = True
 
-            if matched:
-                log.info("Found %s at %s", name, address)
+        if matched:
+            log.info("Found %s at %s", name, address)
 
         return matched
 

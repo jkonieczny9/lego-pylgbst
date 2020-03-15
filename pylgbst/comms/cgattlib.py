@@ -51,7 +51,7 @@ class Requester(GATTRequester):
 class GattLibConnection(Connection):
     """
     Main transport class, uses real Bluetooth LE connection.
-    Loops with timeout of 1 seconds to find device named "Lego MOVE Hub"
+    Loops with timeout of 1 seconds to find device with proper name or MAC address.
 
     :type requester: Requester
     """
@@ -61,7 +61,7 @@ class GattLibConnection(Connection):
         self.requester = None
         self._iface = bt_iface_name
 
-    def connect(self, hub_mac=None):
+    def connect(self, hub_mac=None, hub_name=None, prohibited_hub_mac=None, reset=True):
         service = DiscoveryService(self._iface)
 
         while not self.requester:
@@ -70,8 +70,10 @@ class GattLibConnection(Connection):
             log.debug("Devices: %s", devices)
 
             for address, name in devices.items():
-                if self._is_device_matched(address, name, hub_mac):
+                if self._is_device_matched(address, name, hub_mac, hub_name, prohibited_hub_mac):
                     self.requester = Requester(address, True, self._iface)
+                    self.name = name
+                    self.address = address
                     break
 
             if self.requester:

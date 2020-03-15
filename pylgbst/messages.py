@@ -3,7 +3,21 @@ from struct import pack, unpack
 
 from pylgbst.utilities import str2hex
 
+#-------------------------------------------------------------------------
+
 log = logging.getLogger('hub')
+
+#-------------------------------------------------------------------------
+
+LEGO_MANUFACTURER_ID = 0x0397
+
+class BLEManufacturerData(object):
+    WEDO2_ID = 0x00
+    DUPLO_TRAIN_BASE_ID = 0x20
+    MOVE_HUB_ID = 0x40
+    POWERED_UP_HUB_ID = 0x41
+    POWERED_UP_REMOTE_CONTROL_ID = 0x42
+    TECHNIC_HUB_ID = 0x80
 
 
 class Message(object):
@@ -18,13 +32,25 @@ class Message(object):
         see https://lego.github.io/lego-ble-wireless-protocol-docs/#common-message-header
         """
         msglen = len(self.payload) + 3
-        assert msglen < 127, "TODO: handle longer messages with 2-byte len"
-        return pack("<B", msglen) + pack("<B", self.hub_id) + pack("<B", self.TYPE) + self.payload
+        if msglen > 127:
+            #128: 128 + 1
+            #129: 129 + 1
+            #...
+            #255: 255 + 1
+            #256: 255 + 2
+            #...
+            #509: 255 + 255
+            msglen_bytes = pack("<B", min(msglen, 255)) + pack("<B", max(msglen-255, 0)+1)
+        else:
+            msglen_bytes = pack("<B", msglen)
+        return msglen_bytes + pack("<B", self.hub_id) + pack("<B", self.TYPE) + self.payload
 
     def __repr__(self):
         # assert self.bytes()  # to trigger any field changes
         data = self.__dict__
-        data = {x: (str2hex(y) if isinstance(y, bytes) else y)
+        data = {x: (str2hex(y) if isinstance(y, bytes)
+                else  y if isinstance(y, (bytearray, bool)) or y is None
+                else "0x%x" % y)
                 for x, y in data.items()
                 if x not in ('hub_id',)}
         return self.__class__.__name__ + "(%s)" % data
@@ -54,7 +80,8 @@ class UpstreamMsg(Message):
         msg = cls()
         msg.payload = data
         msglen = msg._byte()
-        assert msglen < 127, "TODO: handle longer messages with 2-byte len"
+        if msglen > 127:
+            msglen = msg._byte() + msglen - 1
         hub_id = msg._byte()
         assert hub_id == 0
         msg_type = msg._byte()
@@ -97,17 +124,17 @@ class MsgHubProperties(DownstreamMsg, UpstreamMsg):
 
     ADVERTISE_NAME = 0x01
     BUTTON = 0x02
-    FW_VERSION = 0x03
-    HW_VERSION = 0x04
+    FW_VERSION = 0x03 #Firmware version
+    HW_VERSION = 0x04 #Hardware version
     RSSI = 0x05
-    VOLTAGE_PERC = 0x06
+    VOLTAGE_PERC = 0x06 #Battery level
     BATTERY_TYPE = 0x07
     MANUFACTURER = 0x08
     RADIO_FW_VERSION = 0x09
     WIRELESS_PROTO_VERSION = 0x0A
-    SYSTEM_TYPE_ID = 0x0B
+    SYSTEM_TYPE_ID = 0x0B #Hub type ID
     HW_NETW_ID = 0x0C
-    PRIMARY_MAC = 0x0D
+    PRIMARY_MAC = 0x0D #Primary MAC address
     SECONDARY_MAC = 0x0E
     HARDWARE_NETWORK_FAMILY = 0x0F
 
@@ -117,6 +144,12 @@ class MsgHubProperties(DownstreamMsg, UpstreamMsg):
     RESET = 0x04
     UPD_REQUEST = 0x05
     UPSTREAM_UPDATE = 0x06
+
+    BUTTON_STATE_RELEASED = 0x00
+    BUTTON_STATE_UP = 0x01
+    BUTTON_STATE_PRESSED = 0x02
+    BUTTON_STATE_STOP = 0x7F
+    BUTTON_STATE_DOWN = 0xFF
 
     def __init__(self, prop=None, operation=None, parameters=b""):
         super(MsgHubProperties, self).__init__()
@@ -174,12 +207,15 @@ class MsgHubAction(DownstreamMsg, UpstreamMsg):
 
     def is_reply(self, msg):
         if not isinstance(msg, MsgHubAction):
-            raise TypeError("Unexpected message type: %s" % (msg.__class__,))
+            #raise TypeError("Unexpected message type: %s" % (msg.__class__,))
+            return False
+
         if self.action == self.DISCONNECT and msg.action == self.UPSTREAM_DISCONNECT:
             return True
-
-        if self.action == self.SWITCH_OFF and msg.action == self.UPSTREAM_SHUTDOWN:
+        elif self.action == self.SWITCH_OFF and msg.action == self.UPSTREAM_SHUTDOWN:
             return True
+        else:
+            return False
 
     @classmethod
     def decode(cls, data):
@@ -232,7 +268,7 @@ class MsgHubAlert(DownstreamMsg, UpstreamMsg):
         msg.operation = msg._byte()
         msg.status = msg._byte()
 
-        assert msg.operation == cls.UPSTREAM_UPDATE
+        assert(msg.operation == cls.UPSTREAM_UPDATE)
         return msg
 
     def is_ok(self):
@@ -254,20 +290,38 @@ class MsgHubAttachedIO(UpstreamMsg):
     EVENT_ATTACHED_VIRTUAL = 0x02
 
     # DEVICE TYPES
-    DEV_MOTOR = 0x0001
+    DEV_UNKNOWN = 0x0000
+    DEV_SIMOLE_MEDIUM_LINEAR_MOTOR = 0x0001
     DEV_SYSTEM_TRAIN_MOTOR = 0x0002
-    DEV_BUTTON = 0x0005
     DEV_LED_LIGHT = 0x0008
     DEV_VOLTAGE = 0x0014
     DEV_CURRENT = 0x0015
     DEV_PIEZO_SOUND = 0x0016
-    DEV_RGB_LIGHT = 0x0017
-    DEV_TILT_EXTERNAL = 0x0022
+    DEV_RGB_LIGHT = 0x0017 #HUB LED
+    DEV_TILT = 0x0022
     DEV_MOTION_SENSOR = 0x0023
-    DEV_VISION_SENSOR = 0x0025
-    DEV_MOTOR_EXTERNAL_TACHO = 0x0026
-    DEV_MOTOR_INTERNAL_TACHO = 0x0027
-    DEV_TILT_INTERNAL = 0x0028
+    DEV_VISION_SENSOR = 0x0025 #Color distance senesor
+    DEV_MEDIUM_LINEAR_MOTOR = 0x0026
+    DEV_MOVE_HUB_MEDIUM_LINEAR_MOTOR = 0x0027 #Move Hub medium linear motor
+    DEV_MOVE_HUB_TILT = 0x0028 #Move Hub tilt sensor
+    DEV_DUPLO_TRAIN_BASE_MOTOR = 0x0029
+    DEV_DUPLO_TRAIN_BASE_SPEAKER = 0x002A
+    DEV_DUPLO_TRAIN_BASE_COLOR_SENSOR = 0x002B
+    DEV_DUPLO_TRAIN_BASE_SPEEDOMETER = 0x002C
+    DEV_TECHNIC_LARGE_LINEAR_MOTOR = 0x002E #Technic Control+
+    DEV_TECHNIC_XLARGE_LINEAR_MOTOR = 0x002F #Technic Control+
+    DEV_TECHNIC_MEDIUM_ANGULAR_MOTOR = 0x0030 #Spike Prime
+    DEV_TECHNIC_LARGE_ANGULAR_MOTOR = 0x0031 #Spike Prime
+    DEV_TECHNIC_MEDIUM_HUB_GEST_SENSOR = 0x0036
+    DEV_REMOTE_CONTROL_BUTTON = 0x0037
+    DEV_REMOTE_CONTROL_RSSI = 0x0038
+    DEV_TECHNIC_MEDIUM_HUB_ACCELEROMETER = 0x0039
+    DEV_TECHNIC_MEDIUM_HUB_GYRO_SENSOR = 0x003A
+    DEV_TECHNIC_MEDIUM_HUB_TILT_SENSOR = 0x003B
+    DEV_TECHNIC_MEDIUM_HUB_TEMPERATURE_SENSOR = 0x003C
+    DEV_TECHNIC_COLOR_SENSOR = 0x003D #Spike Prime
+    DEV_TECHNIC_DISTANCE_SENSOR = 0x003E #Spike Prime
+    DEV_TECHNIC_FORCE_SENSOR = 0x003F #Spike Prime
 
     def __init__(self):
         super(MsgHubAttachedIO, self).__init__()
@@ -348,13 +402,10 @@ class MsgPortInfoRequest(DownstreamMsg):
         return super(MsgPortInfoRequest, self).bytes()
 
     def is_reply(self, msg):
-        if msg.port != self.port:
-            return False
-
         if self.info_type == self.INFO_PORT_VALUE:
-            return isinstance(msg, (MsgPortValueSingle, MsgPortValueCombined))
+            return isinstance(msg, (MsgPortValueSingle, MsgPortValueCombined)) and (msg.port == self.port)
         else:
-            return isinstance(msg, (MsgPortInfo,))
+            return isinstance(msg, (MsgPortInfo,)) and (msg.port == self.port)
 
 
 class MsgPortModeInfoRequest(DownstreamMsg):
@@ -424,16 +475,28 @@ class MsgPortInputFmtSetupSingle(DownstreamMsg):
             return True
 
 
-class MsgPortInputFmtSetupCombined(DownstreamMsg):
+class MsgPortInputFmtSetupCombined(DownstreamMsg): #TODO: Is this correct?
     """
     https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#port-input-format-setup-combinedmode
     """
     TYPE = 0x42
 
-    def __init__(self, port, mode, delta=1, update_enable=0):
+    SC_SET_MODE_AND_DATASET = 0x01
+    SC_LOCK_LPF2_DEVICE_FOR_SETUP = 0x02
+    SC_UNLOCK_AND_START_WITH_MULTI_UPDATE_ENABLED = 0x03
+    SC_UNLOCK_AND_START_WITH_MULTI_UPDATE_DISABLED = 0x04
+    SC_RESET_SENSOR = 0x06 #Reset the sensor to the legacy mode 0
+
+    def __init__(self, port, sub_cmd, combination_idx=None, mode=None, data_set=None):
         super(MsgPortInputFmtSetupCombined, self).__init__()
         self.port = port
-        self.payload = pack("<B", port) + pack("<B", mode) + pack("<I", delta) + pack("<B", update_enable)
+        self.sub_cmd = sub_cmd
+        self.combination_idx = combination_idx
+        self.mode = mode
+        self.data_set = data_set
+        self.payload = pack("<B", port) + pack("<B", sub_cmd)
+        if sub_cmd == self.SC_SET_MODE_AND_DATASET:
+            self.payload += pack("<B", combination_idx) + pack("<B", mode * 16 + data_set)
         self.needs_reply = True
 
     def is_reply(self, msg):
@@ -583,7 +646,7 @@ class MsgPortValueSingle(UpstreamMsg):
         msg = super(MsgPortValueSingle, cls).decode(data)
         assert isinstance(msg, MsgPortValueSingle)
         msg.port = msg._byte()
-        return msg
+        return msg #msg[0] is the first value Byte
 
 
 class MsgPortValueCombined(UpstreamMsg):
@@ -595,13 +658,19 @@ class MsgPortValueCombined(UpstreamMsg):
     def __init__(self):
         super(MsgPortValueCombined, self).__init__()
         self.port = None
+        self.configured_mode_datasets = None
 
     @classmethod
     def decode(cls, data):
         msg = super(MsgPortValueCombined, cls).decode(data)
         assert isinstance(msg, MsgPortValueCombined)
         msg.port = msg._byte()
-        return msg
+        combined_bit_ptr = msg._short()
+        msg.configured_mode_datasets = []
+        for i in range(16):
+            if combined_bit_ptr & (1 << i): 
+                msg.configured_mode_datasets.append(i)
+        return msg #msg[0] is the first value Byte
 
 
 class MsgPortInputFmtSingle(UpstreamMsg):
@@ -630,7 +699,7 @@ class MsgPortInputFmtSingle(UpstreamMsg):
         return msg
 
 
-class MsgPortInputFmtCombined(UpstreamMsg):  # TODO
+class MsgPortInputFmtCombined(UpstreamMsg):
     """
     https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#port-input-format-combinedmode
     """
@@ -639,13 +708,23 @@ class MsgPortInputFmtCombined(UpstreamMsg):  # TODO
     def __init__(self):
         super(MsgPortInputFmtCombined, self).__init__()
         self.port = None
-        self.combined_control = None
+        self.used_combination_idx = None
+        self.multi_upd_enabled = None
+        self.configured_mode_datasets = None
 
     @classmethod
     def decode(cls, data):
         msg = super(MsgPortInputFmtCombined, cls).decode(data)
         assert isinstance(msg, MsgPortInputFmtSingle)
         msg.port = msg._byte()
+        combined_control = msg._byte()
+        msg.used_combination_idx = 0x07 & combined_control
+        msg.multi_upd_enabled = (0xE0 & combined_control) != 0
+        combined_bit_ptr = msg._short()
+        msg.configured_mode_datasets = []
+        for i in range(16):
+            if combined_bit_ptr & (1 << i): 
+                msg.configured_mode_datasets.append(i)
         return msg
 
 
@@ -675,8 +754,9 @@ class MsgPortOutput(DownstreamMsg):
     """
     TYPE = 0x81
 
-    SC_NO_BUFFER = 0b00000001
-    SC_FEEDBACK = 0b00010000
+    SC_BUFFER_IF_NECESSARY = 0x00
+    SC_NO_BUFFER = 0x10 #0b00000001
+    SC_FEEDBACK = 0x01 #0b00010000
 
     WRITE_DIRECT = 0x50
     WRITE_DIRECT_MODE_DATA = 0x51
@@ -710,18 +790,33 @@ class MsgPortOutput(DownstreamMsg):
 class MsgPortOutputFeedback(UpstreamMsg):
     TYPE = 0x82
 
+    FBK_BUFFER_EMPTY_CMD_IN_PROGRESS = 0x01
+    FBK_BUFFER_EMPTY_CMD_COMPLETED = 0x02
+    FBK_CMD_DISCARDED = 0x04
+    FBK_IDLE = 0x08
+    FBK_BUSY_FULL = 0x10
+
     def __init__(self):
         super(MsgPortOutputFeedback, self).__init__()
         self.port = None
         self.status = None
+        self.is_multi_port = None
 
     @classmethod
     def decode(cls, data):
         msg = super(MsgPortOutputFeedback, cls).decode(data)
         assert isinstance(msg, MsgPortOutputFeedback)
-        assert len(msg.payload) == 2, "TODO: implement multi-port feedback message"
-        msg.port = msg._byte()
-        msg.status = msg._byte()
+        assert(len(msg.payload) % 2 == 0)
+        msg.is_multi_port = len(msg.payload) > 2
+        if msg.is_multi_port:
+            msg.port = []
+            msg.status = []
+            for i in range(len(msg.payload) / 2):
+                msg.port.append(msg._byte())
+                msg.status.append(msg._byte())
+        else:
+            msg.port = msg._byte()
+            msg.status = msg._byte()
         return msg
 
     def is_in_progress(self):
@@ -736,6 +831,7 @@ class MsgPortOutputFeedback(UpstreamMsg):
     def is_idle(self):
         return self.status & 0b1000
 
+#-------------------------------------------------------------------------
 
 UPSTREAM_MSGS = (
     MsgHubProperties, MsgHubAction, MsgHubAlert, MsgHubAttachedIO, MsgGenericError,
@@ -743,3 +839,5 @@ UPSTREAM_MSGS = (
     MsgPortValueSingle, MsgPortValueCombined, MsgPortInputFmtSingle, MsgPortInputFmtCombined,
     MsgPortOutputFeedback
 )
+
+#-------------------------------------------------------------------------

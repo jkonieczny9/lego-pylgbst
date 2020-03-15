@@ -2,7 +2,7 @@ import logging
 
 import pygatt
 
-from pylgbst.comms import Connection, LEGO_MOVE_HUB, MOVE_HUB_HW_UUID_CHAR
+from pylgbst.comms import Connection, LPF2_HUB_HW_UUID_CHAR
 from pylgbst.utilities import str2hex
 
 log = logging.getLogger('comms-pygatt')
@@ -10,7 +10,7 @@ log = logging.getLogger('comms-pygatt')
 
 class GattoolConnection(Connection):
     """
-    Used for connecting to
+    Loops with timeout of 1 seconds to find device with proper name or MAC address.
 
     :type _conn_hnd: pygatt.backends.bgapi.device.BGAPIBLEDevice
     """
@@ -19,22 +19,33 @@ class GattoolConnection(Connection):
         Connection.__init__(self)
         self.backend = lambda: pygatt.GATTToolBackend(hci_device=controller)
         self._conn_hnd = None
+        self._adapter = None
 
-    def connect(self, hub_mac=None):
-        log.debug("Trying to connect client to MoveHub with MAC: %s", hub_mac)
-        adapter = self.backend()
-        adapter.start()
+    def connect(self, hub_mac=None, hub_name=None, prohibited_hub_mac=None, reset=True):
+        '''
+        NOTE: Use reset=False to connect for 2nd and further devices to avoid disconnecting already connected devices.
+        '''
+        log.debug("Trying to connect client to hub with MAC: %s", hub_mac)
+        if self._adapter is None: 
+            self._adapter = self.backend()
+            if isinstance(self._adapter, pygatt.GATTToolBackend):
+                self._adapter.start(reset_on_start=reset)
+            else:
+                self._adapter.start(reset=reset)
+        assert(self._adapter is not None)
 
         while not self._conn_hnd:
             log.info("Discovering devices...")
-            devices = adapter.scan(1)
+            devices = self._adapter.scan(1)
             log.debug("Devices: %s", devices)
 
             for dev in devices:
                 address = dev['address']
                 name = dev['name']
-                if self._is_device_matched(address, name, hub_mac):
-                    self._conn_hnd = adapter.connect(address)
+                if self._is_device_matched(address, name, hub_mac, hub_name, prohibited_hub_mac):
+                    self._conn_hnd = self._adapter.connect(address)
+                    self.name = name
+                    self.address = address
                     break
 
             if self._conn_hnd:
@@ -50,7 +61,7 @@ class GattoolConnection(Connection):
         return self._conn_hnd.char_write_handle(handle, bytearray(data))
 
     def set_notify_handler(self, handler):
-        self._conn_hnd.subscribe(MOVE_HUB_HW_UUID_CHAR, handler)
+        self._conn_hnd.subscribe(LPF2_HUB_HW_UUID_CHAR, handler)
 
     def is_alive(self):
         return True

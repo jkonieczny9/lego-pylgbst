@@ -4,11 +4,50 @@ import traceback
 from struct import pack, unpack
 from threading import Thread
 
-from pylgbst.messages import MsgHubProperties, MsgPortOutput, MsgPortInputFmtSetupSingle, MsgPortInfoRequest, \
-    MsgPortModeInfoRequest, MsgPortInfo, MsgPortModeInfo, MsgPortInputFmtSingle
-from pylgbst.utilities import queue, str2hex, usbyte, ushort, usint
+from pylgbst.messages import MsgHubProperties, MsgHubAttachedIO, MsgPortOutput, MsgPortInputFmtSetupSingle, MsgPortInfoRequest, MsgPortModeInfoRequest, MsgPortInfo, MsgPortModeInfo, MsgPortInputFmtSingle
+from pylgbst.utilities import queue, str2hex, usbyte, ushort, usint, sbyte, sshort, sint, sfloat, sdouble
+from pylgbst.hub import HubType
+
+#-------------------------------------------------------------------------
 
 log = logging.getLogger('peripherals')
+
+#-------------------------------------------------------------------------
+
+PERIPHERAL_NAMES = {
+    MsgHubAttachedIO.DEV_UNKNOWN: "Unknown",
+    MsgHubAttachedIO.DEV_SIMOLE_MEDIUM_LINEAR_MOTOR: "Simple Medium Linear Motor",
+    MsgHubAttachedIO.DEV_SYSTEM_TRAIN_MOTOR: "System Train Motor",
+    MsgHubAttachedIO.DEV_LED_LIGHT: "LED Light",
+    MsgHubAttachedIO.DEV_VOLTAGE: "Voltage Sensor",
+    MsgHubAttachedIO.DEV_CURRENT: "Current Sensor",
+    MsgHubAttachedIO.DEV_PIEZO_SOUND: "Piezo Sound",
+    MsgHubAttachedIO.DEV_RGB_LIGHT: "Hub LED", #HUB LED
+    MsgHubAttachedIO.DEV_TILT: "Tilt Sensor",
+    MsgHubAttachedIO.DEV_MOTION_SENSOR: "Motion Seneor",
+    MsgHubAttachedIO.DEV_VISION_SENSOR: "Vision Sensor", #Color distance senesor
+    MsgHubAttachedIO.DEV_MEDIUM_LINEAR_MOTOR: "Medium Linear Motor",
+    MsgHubAttachedIO.DEV_MOVE_HUB_MEDIUM_LINEAR_MOTOR: "Move Hub Medium Linear Motor", #Move Hub medium linear motor
+    MsgHubAttachedIO.DEV_MOVE_HUB_TILT: "Move Hub Tilt Sensor", #Move Hub tilt sensor
+    MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_MOTOR: "Duplo Train Base Motor",
+    MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_SPEAKER: "Duplo Train Base Speaker",
+    MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_COLOR_SENSOR: "Duplo Train Base Color Sensor",
+    MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_SPEEDOMETER: "Duplo Train Base Speedometer",
+    MsgHubAttachedIO.DEV_TECHNIC_LARGE_LINEAR_MOTOR: "Technic Large Linear Motor", #Technic Control+
+    MsgHubAttachedIO.DEV_TECHNIC_XLARGE_LINEAR_MOTOR: "Technic XLarge Linear Motor", #Technic Control+
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_ANGULAR_MOTOR: "Technic Medium Angular Motor", #Spike Prime
+    MsgHubAttachedIO.DEV_TECHNIC_LARGE_ANGULAR_MOTOR: "Technic Large Angular Motor", #Spike Prime
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_GEST_SENSOR: "Technic Medium Gest Sensor",
+    MsgHubAttachedIO.DEV_REMOTE_CONTROL_BUTTON: "Remote Control Button",
+    MsgHubAttachedIO.DEV_REMOTE_CONTROL_RSSI: "Remote Control RSSI",
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_ACCELEROMETER: "Technic Hub Accelerometer",
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_GYRO_SENSOR: "Technic Hub Gyro Sensor",
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_TILT_SENSOR: "Technic Hub Tilt Sensor",
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_TEMPERATURE_SENSOR: "Technic Hub Temperature Sensor",
+    MsgHubAttachedIO.DEV_TECHNIC_COLOR_SENSOR: "Spike Prime Hub Color Sensor", #Spike Prime
+    MsgHubAttachedIO.DEV_TECHNIC_DISTANCE_SENSOR: "Spike Prime Hub Distance Sensor", #Spike Prime
+    MsgHubAttachedIO.DEV_TECHNIC_FORCE_SENSOR: "Spike Prime Hub Force Sensor" #Spike Prime
+}
 
 # COLORS
 COLOR_BLACK = 0x00
@@ -23,6 +62,7 @@ COLOR_ORANGE = 0x08
 COLOR_RED = 0x09
 COLOR_WHITE = 0x0a
 COLOR_NONE = 0xFF
+
 COLORS = {
     COLOR_BLACK: "BLACK",
     COLOR_PINK: "PINK",
@@ -38,6 +78,7 @@ COLORS = {
     COLOR_NONE: "NONE"
 }
 
+#-------------------------------------------------------------------------
 
 # TODO: support more types of peripherals from
 # https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#io-type-id
@@ -58,6 +99,7 @@ class Peripheral(object):
         self.virtual_ports = ()
         self.hub = parent
         self.port = port
+        self.type = MsgHubAttachedIO.DEV_UNKNOWN
 
         self.is_buffered = False
 
@@ -71,13 +113,16 @@ class Peripheral(object):
         thr.start()
 
     def __repr__(self):
-        msg = "%s on port 0x%x" % (self.__class__.__name__, self.port)
+        msg = "%s on port 0x%x" % (self.__class__.__name__, self.port if self.port is not None else -1)
         if self.virtual_ports:
             msg += " (ports 0x%x and 0x%x combined)" % (self.virtual_ports[0], self.virtual_ports[1])
         return msg
+        
+    def is_port_virtual(self):
+        return not (not self.virtual_ports)
 
     def set_port_mode(self, mode, send_updates=None, update_delta=None):
-        assert not self.virtual_ports, "TODO: support combined mode for sensors"
+        assert not self.virtual_ports, "TODO: support combined mode for sensors" #TODO: support combined mode
 
         if send_updates is None:
             send_updates = self._port_mode.upd_enabled
@@ -103,16 +148,17 @@ class Peripheral(object):
         msg.is_buffered = self.is_buffered  # TODO: support buffering
         self.hub.send(msg)
 
-    def get_sensor_data(self, mode):
-        self.set_port_mode(mode)
+    def get_sensor_data(self, mode=None):
+        if mode is not None:
+            self.set_port_mode(mode)
         msg = MsgPortInfoRequest(self.port, MsgPortInfoRequest.INFO_PORT_VALUE)
         resp = self.hub.send(msg)
         return self._decode_port_data(resp)
 
-    def subscribe(self, callback, mode=0x00, granularity=1):
+    def subscribe(self, callback, mode=0x00, update_delta=1):
         if self._port_mode.mode != mode and self._subscribers:
             raise ValueError("Port is in active mode %r, unsubscribe all subscribers first" % self._port_mode)
-        self.set_port_mode(mode, True, granularity)
+        self.set_port_mode(mode, True, update_delta)
         if callback:
             self._subscribers.add(callback)
 
@@ -206,6 +252,20 @@ class Peripheral(object):
                     break
         return descr
 
+class LEDLight(Peripheral):
+    MODE_BRIGHTNESS = 0x00
+
+    def __init__(self, parent, port):
+        super(LEDLight, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_LED_LIGHT
+
+    def set_brightness(self, brightness):
+        self.set_port_mode(self.MODE_BRIGHTNESS)
+        payload = pack("<B", self.MODE_BRIGHTNESS) + pack("<B", brightness)
+
+        msg = MsgPortOutput(self.port, MsgPortOutput.WRITE_DIRECT_MODE_DATA, payload)
+        self._send_output(msg)
+
 
 class LEDRGB(Peripheral):
     MODE_INDEX = 0x00
@@ -213,6 +273,7 @@ class LEDRGB(Peripheral):
 
     def __init__(self, parent, port):
         super(LEDRGB, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_RGB_LIGHT
 
     def set_color(self, color):
         if isinstance(color, (list, tuple)):
@@ -239,37 +300,32 @@ class LEDRGB(Peripheral):
             return usbyte(msg.payload, 0),
 
 
-class Motor(Peripheral):
+class BasicMotor(Peripheral):
     SUBCMD_START_POWER = 0x00
     SUBCMD_START_POWER_GROUPED = 0x03
-    SUBCMD_SET_ACC_TIME = 0x05
-    SUBCMD_SET_DEC_TIME = 0x06
-    SUBCMD_START_SPEED = 0x07
-    # SUBCMD_START_SPEED = 0x08
-    SUBCMD_START_SPEED_FOR_TIME = 0x09
-    # SUBCMD_START_SPEED_FOR_TIME = 0x0A
 
     END_STATE_BRAKE = 127
     END_STATE_HOLD = 126
     END_STATE_FLOAT = 0
 
-    def _speed_abs(self, relative):
-        if relative == Motor.END_STATE_BRAKE \
-            or relative == Motor.END_STATE_HOLD:
-            # special value for BRAKE
-            # https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-startpower-power
-            return relative
+    def __init__(self, parent, port):
+        super(BasicMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_UNKNOWN
 
-        if relative < -1:
-            log.warning("Speed cannot be less than -1")
-            relative = -1
+    def _map_speed(self, speed):
+        if speed == BasicMotor.END_STATE_BRAKE or speed == BasicMotor.END_STATE_HOLD:
+            # special value for BRAKE https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-startpower-power
+            return speed
 
-        if relative > 1:
-            log.warning("Speed cannot be more than 1")
-            relative = 1
+        if speed < -100:
+            log.warning("Speed cannot be less than -100")
+            speed = -100
 
-        absolute = math.ceil(relative * 100)  # scale of 100 is proven by experiments
-        return int(absolute)
+        if speed > 100:
+            log.warning("Speed cannot be more than 100")
+            speed = 100
+
+        return speed
 
     def _write_direct_mode(self, subcmd, params):
         params = pack("<B", subcmd) + params
@@ -283,31 +339,67 @@ class Motor(Peripheral):
         msg = MsgPortOutput(self.port, subcmd, params)
         self._send_output(msg)
 
-    def start_power(self, power_primary=1.0, power_secondary=None):
+    def set_power(self, power_primary=100, power_secondary=None):
         """
         https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-startpower-power
+        Set the motor(s) power.
+        :type power_primary: int [0-100] or [-1--100] for reverse or 0 for stop or 127 for break.
         """
-        if power_secondary is None:
+        if self.virtual_ports and power_secondary is None: 
             power_secondary = power_primary
 
-        if self.virtual_ports:
-            cmd = self.SUBCMD_START_POWER_GROUPED
+        if power_secondary is None:
+            subcmd = self.SUBCMD_START_POWER
         else:
-            cmd = self.SUBCMD_START_POWER
+            subcmd = self.SUBCMD_START_POWER_GROUPED
 
         params = b""
-        params += pack("<b", self._speed_abs(power_primary))
-        if self.virtual_ports:
-            params += pack("<b", self._speed_abs(power_secondary))
+        params += pack("<b", self._map_speed(power_primary))
+        if power_secondary is not None:
+            params += pack("<b", self._map_speed(power_secondary))
 
-        self._write_direct_mode(cmd, params)
+        self._write_direct_mode(subcmd, params)
 
     def stop(self):
-        self.timed(0)
+        self.set_power(0)
+
+    def break_motor(self):
+        self.set_power(BasicMotor.END_STATE_BRAKE)
+
+class TachoMotor(BasicMotor):
+    SUBCMD_SET_ACC_TIME = 0x05
+    SUBCMD_SET_DEC_TIME = 0x06
+    SUBCMD_START_SPEED = 0x07
+    SUBCMD_START_SPEED2 = 0x08
+    SUBCMD_START_SPEED_FOR_TIME = 0x09
+    SUBCMD_START_SPEED_FOR_TIME2 = 0x0A
+    SUBCMD_START_SPEED_FOR_DEGREES = 0x0B
+    SUBCMD_START_SPEED_FOR_DEGREES2 = 0x0C
+
+    SENSOR_POWER = 0x00  # it's not input mode, hovewer returns some numbers
+    SENSOR_SPEED = 0x01
+    SENSOR_ANGLE = 0x02
+
+    def __init__(self, parent, port):
+        super(TachoMotor, self).__init__(parent, port)    
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.SENSOR_ANGLE:
+            angle = sint(data, 0)
+            return (angle,)
+        elif self._port_mode.mode == self.SENSOR_SPEED:
+            speed = sbyte(data, 0)
+            return (speed,)
+        else:
+            log.debug("Got motor sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
 
     def set_acc_profile(self, seconds, profile_no=0x00):
         """
         https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-setacctime-time-profileno-0x05
+        Set acceleration profile for the motor.
+        :type seconds: int/float; time for acceleration from 0 to 100 (in seconds)
         """
         params = b""
         params += pack("<H", int(seconds * 1000))
@@ -318,6 +410,8 @@ class Motor(Peripheral):
     def set_dec_profile(self, seconds, profile_no=0x00):
         """
         https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-setdectime-time-profileno-0x06
+        Set deceleration profile for the motor.
+        :type seconds: int/float; time for deceleration from 100 to 0 (in seconds)
         """
         params = b""
         params += pack("<H", int(seconds * 1000))
@@ -325,136 +419,298 @@ class Motor(Peripheral):
 
         self._send_cmd(self.SUBCMD_SET_DEC_TIME, params)
 
-    def start_speed(self, speed_primary=1.0, speed_secondary=None, max_power=1.0, use_profile=0b11):
+    def set_speed(self, speed_primary=100, speed_secondary=None, max_power=100, use_profile=0b11):
         """
         https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-startspeed-speed-maxpower-useprofile-0x07
+        Start or hold motor(s) and keep the speed/position without exceeding power-levels > max_power.
+        Run motor(s) for given time.
+        :type speed_primary: int [0-100]
+        :type max_power: int [0-100]
         """
-        if speed_secondary is None:
+        if self.virtual_ports and speed_secondary is None: 
             speed_secondary = speed_primary
+
+        if speed_secondary is None:
+            subcmd = self.SUBCMD_START_SPEED
+        else:
+            subcmd = self.SUBCMD_START_SPEED2
 
         params = b""
-        params += pack("<b", self._speed_abs(speed_primary))
-        if self.virtual_ports:
-            params += pack("<b", self._speed_abs(speed_secondary))
+        params += pack("<b", self._map_speed(speed_primary))
+        if speed_secondary is not None:
+            params += pack("<b", self._map_speed(speed_secondary))
 
-        params += pack("<B", int(100 * max_power))
+        params += pack("<B", max_power)
         params += pack("<B", use_profile)
 
-        self._send_cmd(self.SUBCMD_START_SPEED, params)
+        self._send_cmd(subcmd, params)
 
-    def timed(self, seconds, speed_primary=1.0, speed_secondary=None, max_power=1.0, end_state=END_STATE_BRAKE,
-              use_profile=0b11):
+    def set_time(self, seconds, speed_primary=100, speed_secondary=None, max_power=100, end_state=BasicMotor.END_STATE_BRAKE, use_profile=0b11):
         """
         https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-startspeedfortime-time-speed-maxpower-endstate-useprofile-0x09
+        Run motor(s) for given time.
+        :type seconds: int/float (in seconds)
+        :type speed_primary: int [0-100]
+        :type max_power: int [0-100]
         """
+        if self.virtual_ports and speed_secondary is None: 
+                speed_secondary = speed_primary
+
         if speed_secondary is None:
-            speed_secondary = speed_primary
+            subcmd = self.SUBCMD_START_SPEED_FOR_TIME
+        else:
+            subcmd = self.SUBCMD_START_SPEED_FOR_TIME2
 
         params = b""
         params += pack("<H", int(seconds * 1000))
-        params += pack("<b", self._speed_abs(speed_primary))
-        if self.virtual_ports:
-            params += pack("<b", self._speed_abs(speed_secondary))
+        params += pack("<b", self._map_speed(speed_primary))
+        if speed_secondary is not None:
+            params += pack("<b", self._map_speed(speed_secondary))
 
-        params += pack("<B", int(100 * max_power))
+        params += pack("<B", max_power)
         params += pack("<B", end_state)
         params += pack("<B", use_profile)
 
-        self._send_cmd(self.SUBCMD_START_SPEED_FOR_TIME, params)
+        self._send_cmd(subcmd, params)
 
-
-class EncodedMotor(Motor):
-    SUBCMD_START_SPEED_FOR_DEGREES = 0x0B
-    # SUBCMD_START_SPEED_FOR_DEGREES = 0x0C
-    SUBCMD_GOTO_ABSOLUTE_POSITION = 0x0D
-    # SUBCMD_GOTO_ABSOLUTE_POSITIONC = 0x0E
-    SUBCMD_PRESET_ENCODER = 0x14
-
-    SENSOR_POWER = 0x00  # it's not input mode, hovewer returns some numbers
-    SENSOR_SPEED = 0x01
-    SENSOR_ANGLE = 0x02
-    SENSOR_TEST = 0x03  # exists, but neither input nor output mode
-
-    def angled(self, degrees, speed_primary=1.0, speed_secondary=None, max_power=1.0, end_state=Motor.END_STATE_BRAKE,
-               use_profile=0b11):
+    def rotate_by_angle(self, degrees, speed_primary=100, speed_secondary=None, max_power=100, end_state=BasicMotor.END_STATE_BRAKE, use_profile=0b11):
         """
         https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-startspeedfordegrees-degrees-speed-maxpower-endstate-useprofile-0x0b
-        :type degrees: int
-        :type speed_primary: float
+        Rotate a motor by a given amount of degrees.
+        :type degrees: int (in degrees)
+        :type speed_primary: int [0-100]
+        :type max_power: int [0-100]
         """
-        if speed_secondary is None:
+        if self.virtual_ports and speed_secondary is None: 
             speed_secondary = speed_primary
+
+        if speed_secondary is None:
+            subcmd = self.SUBCMD_START_SPEED_FOR_DEGREES
+        else:
+            subcmd = self.SUBCMD_START_SPEED_FOR_DEGREES2
 
         degrees = int(round(degrees))
         if degrees < 0:
             degrees = -degrees
             speed_primary = -speed_primary
-            speed_secondary = -speed_secondary
+            if speed_secondary is not None:
+                speed_secondary = -speed_secondary
 
         params = b""
         params += pack("<I", degrees)
-        params += pack("<b", self._speed_abs(speed_primary))
-        if self.virtual_ports:
-            params += pack("<b", self._speed_abs(speed_secondary))
+        params += pack("<b", self._map_speed(speed_primary))
+        if speed_secondary is not None:
+            params += pack("<b", self._map_speed(speed_secondary))
 
-        params += pack("<B", int(100 * max_power))
+        params += pack("<B", max_power)
         params += pack("<B", end_state)
         params += pack("<B", use_profile)
 
-        self._send_cmd(self.SUBCMD_START_SPEED_FOR_DEGREES, params)
+        self._send_cmd(subcmd, params)
 
-    def goto_position(self, degrees_primary, degrees_secondary=None, speed=1.0, max_power=1.0,
-                      end_state=Motor.END_STATE_BRAKE, use_profile=0b11):
-        """
-        https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-gotoabsoluteposition-abspos-speed-maxpower-endstate-useprofile-0x0d
-        """
-        if degrees_secondary is None:
-            degrees_secondary = degrees_primary
+    def stop(self):
+        self.set_time(0)
 
-        params = b""
-        params += pack("<i", degrees_primary)
-        if self.virtual_ports:
-            params += pack("<i", degrees_secondary)
+class AbsMotor(TachoMotor):
+    SUBCMD_GOTO_ABSOLUTE_POSITION = 0x0D
+    SUBCMD_GOTO_ABSOLUTE_POSITION2 = 0x0E
+    SUBCMD_PRESET_ENCODER = 0x14
 
-        params += pack("<b", self._speed_abs(speed))
+    SENSOR_ABSOLUTE = 0x03
 
-        params += pack("<B", int(100 * max_power))
-        params += pack("<B", end_state)
-        params += pack("<B", use_profile)
-
-        self._send_cmd(self.SUBCMD_GOTO_ABSOLUTE_POSITION, params)
+    def __init__(self, parent, port):
+        super(AbsMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_UNKNOWN
 
     def _decode_port_data(self, msg):
         data = msg.payload
-        if self._port_mode.mode == self.SENSOR_ANGLE:
-            angle = unpack("<l", data[0:4])[0]
-            return (angle,)
-        elif self._port_mode.mode == self.SENSOR_SPEED:
-            speed = unpack("<b", data[0:1])[0]
-            return (speed,)
+        if self._port_mode.mode == self.SENSOR_ABSOLUTE:
+            angle_position = sshort(data, 0)
+            return (angle_position,)
         else:
-            log.debug("Got motor sensor data while in unexpected mode: %r", self._port_mode)
-            return ()
+            return super(AbsMotor, self)._decode_port_data(msg)
 
-    def subscribe(self, callback, mode=SENSOR_ANGLE, granularity=1):
-        super(EncodedMotor, self).subscribe(callback, mode, granularity)
+    @staticmethod
+    def _normalize_angle(angle):
+        if angle >= 180:
+            return angle - (360 * ((angle + 180) / 360))
+        elif angle < -180:
+            return angle + (360 * ((180 - angle) / 360))
+        return angle
 
-    def preset_encoder(self, degrees=0, degrees_secondary=None, only_combined=False):
+    @staticmethod
+    def _round_to_neares_90(angle):
+        angle = AbsMotor._normalize_angle(angle)
+        if angle < -135:
+            return -180
+        if angle < -45:
+            return -90
+        if angle < 45:
+            return 0
+        if angle < 135:
+            return 90
+        return -180
+
+    def subscribe(self, callback, mode=SENSOR_ABSOLUTE, update_delta=1):
+        super(AbsMotor, self).subscribe(callback, mode, update_delta)
+
+    def goto_abs_position(self, degrees_primary, degrees_secondary=None, speed=100, max_power=100, end_state=BasicMotor.END_STATE_BRAKE, use_profile=0b11):
+        """
+        https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-gotoabsoluteposition-abspos-speed-maxpower-endstate-useprofile-0x0d
+        Rotate a motor(s) to a given position (angle).
+        :type degrees_primary: int (in degrees)
+        :type speed: int [0-100]
+        :type max_power: int [0-100]
+        """
+        if self.virtual_ports and degrees_secondary is None: 
+            degrees_secondary = degrees_primary
+
+        if degrees_secondary is None:
+            subcmd = self.SUBCMD_GOTO_ABSOLUTE_POSITION
+        else:
+            subcmd = self.SUBCMD_GOTO_ABSOLUTE_POSITION2
+
+        params = b""
+        params += pack("<i", AbsMotor._normalize_angle(degrees_primary))
+        if degrees_secondary is not None:
+            params += pack("<i", AbsMotor._normalize_angle(degrees_secondary))
+
+        params += pack("<b", self._map_speed(speed))
+
+        params += pack("<B", max_power)
+        params += pack("<B", end_state)
+        params += pack("<B", use_profile)
+
+        self._send_cmd(subcmd, params)
+
+    def preset_encoder(self, degrees=0, degrees_secondary=None, only_individual=True):
         """
         https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-presetencoder-position-n-a
         https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-presetencoder-leftposition-rightposition-0x14
+        Preset the encoder of the motor(s) to position.
+        :type degrees: int (in degrees) or 0 for reset
+        :type only_individual: bool; if True only the individual encoders of the synchronized motors are preset and the synchronized virtual encoders are not affected
         """
-        if degrees_secondary is None:
+        if self.virtual_ports and degrees_secondary is None:
             degrees_secondary = degrees
 
-        if self.virtual_ports and not only_combined:
+        if only_individual and degrees_secondary is not None:
             self._send_cmd(self.SUBCMD_PRESET_ENCODER, pack("<i", degrees) + pack("<i", degrees_secondary))
         else:
             params = pack("<i", degrees)
             self._write_direct_mode(self.SENSOR_ANGLE, params)
 
 
-class TiltSensor(Peripheral):
+class SimpleMediumLinearMotor(BasicMotor):
+    def __init__(self, parent, port):
+        super(SimpleMediumLinearMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_SIMOLE_MEDIUM_LINEAR_MOTOR
+
+class SystemTrainMotor(BasicMotor):
+    def __init__(self, parent, port):
+        super(SystemTrainMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_SYSTEM_TRAIN_MOTOR
+
+class DuploTrainBaseMotor(BasicMotor):
+    def __init__(self, parent, port):
+        super(DuploTrainBaseMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_MOTOR       
+
+class MediumLinearMotor(TachoMotor):
+    def __init__(self, parent, port):
+        super(MediumLinearMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_MEDIUM_LINEAR_MOTOR
+
+class MoveHubMediumLinearMotor(TachoMotor):
+    def __init__(self, parent, port):
+        super(MoveHubMediumLinearMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_MOVE_HUB_MEDIUM_LINEAR_MOTOR
+
+class TechnicMediumAngularMotor(AbsMotor):
+    def __init__(self, parent, port):
+        super(TechnicMediumAngularMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_ANGULAR_MOTOR
+
+class TechnicLargeAngularMotor(AbsMotor):
+    def __init__(self, parent, port):
+        super(TechnicLargeAngularMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_LARGE_ANGULAR_MOTOR
+
+class TechnicLargeLinearMotor(AbsMotor):
+    def __init__(self, parent, port):
+        super(TechnicLargeLinearMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_LARGE_LINEAR_MOTOR
+
+class TechnicXLargeLinearMotor(AbsMotor):
+    def __init__(self, parent, port):
+        super(TechnicXLargeLinearMotor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_XLARGE_LINEAR_MOTOR
+
+
+class TechnicHubAccelerometerSensor(Peripheral):
+
+    MODE_ACCEL = 0x00
+
+    def __init__(self, parent, port):
+        super(TechnicHubAccelerometerSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_ACCELEROMETER
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_ACCEL:
+            #Unit: mG
+            x = round(sshort(data, 0) / 4.096)
+            y = round(sshort(data, 2) / 4.096)
+            z = round(sshort(data, 4) / 4.096)
+            return (x,y,z)
+        else:
+            log.debug("Got Technic hub accelerometer sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
+
+
+class TechnicHubGyroSensor(Peripheral):
+
+    MODE_GYRO = 0x00
+
+    def __init__(self, parent, port):
+        super(TechnicHubGyroSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_GYRO_SENSOR
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_GYRO:
+            #Unit: DPS (degrees per second)
+            x = round(sshort(data, 0) * 7 / 400)
+            y = round(sshort(data, 2) * 7 / 400)
+            z = round(sshort(data, 4) * 7 / 400)
+            return (x,y,z)
+        else:
+            log.debug("Got Technic hub gyro sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
+
+
+class TechnicHubTiltSensor(Peripheral):
+
+    MODE_TILT = 0x00
+
+    def __init__(self, parent, port):
+        super(TechnicHubTiltSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_TILT_SENSOR
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_TILT:
+            #Unit: 
+            x = -sshort(data, 0)
+            y = sshort(data, 2)
+            z = sshort(data, 4)
+            return (x,y,z)
+        else:
+            log.debug("Got Technic hub tilt sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
+
+
+class GenericTiltSensor(Peripheral):
     MODE_2AXIS_ANGLE = 0x00
     MODE_2AXIS_SIMPLE = 0x01
     MODE_3AXIS_SIMPLE = 0x02
@@ -494,14 +750,18 @@ class TiltSensor(Peripheral):
         TRI_FRONT: "FRONT",
     }
 
-    def subscribe(self, callback, mode=MODE_3AXIS_SIMPLE, granularity=1):
-        super(TiltSensor, self).subscribe(callback, mode, granularity)
+    def __init__(self, parent, port):
+        super(GenericTiltSensor, self).__init__(parent, port)
+
+    def subscribe(self, callback, mode=MODE_3AXIS_SIMPLE, update_delta=1):
+        super(GenericTiltSensor, self).subscribe(callback, mode, update_delta)
 
     def _decode_port_data(self, msg):
+        #TODO: Is this correct?
         data = msg.payload
         if self._port_mode.mode == self.MODE_2AXIS_ANGLE:
-            roll = unpack('<b', data[0:1])[0]
-            pitch = unpack('<b', data[1:2])[0]
+            roll = sbyte(data, 0)
+            pitch = sbyte(data, 1)
             return (roll, pitch)
         elif self._port_mode.mode == self.MODE_3AXIS_SIMPLE:
             state = usbyte(data, 0)
@@ -513,9 +773,9 @@ class TiltSensor(Peripheral):
             bump_count = usint(data, 0)
             return (bump_count,)
         elif self._port_mode.mode == self.MODE_3AXIS_ACCEL:
-            roll = unpack('<b', data[0:1])[0]
-            pitch = unpack('<b', data[1:2])[0]
-            yaw = unpack('<b', data[2:3])[0]  # did I get the order right?
+            roll = sbyte(data, 0)
+            pitch = sbyte(data, 1)
+            yaw = sbyte(data, 2)  # did I get the order right?
             return (roll, pitch, yaw)
         elif self._port_mode.mode == self.MODE_ORIENT_CF:
             state = usbyte(data, 0)
@@ -526,12 +786,21 @@ class TiltSensor(Peripheral):
         elif self._port_mode.mode == self.MODE_CALIBRATION:
             return (usbyte(data, 0), usbyte(data, 1), usbyte(data, 2))
         else:
-            log.debug("Got tilt sensor data while in unexpected mode: %r", self._port_mode)
+            log.debug("Unsupported tilt sensor mode: %r", self._port_mode)
             return ()
 
     # TODO: add some methods from official doc, like
     # https://lego.github.io/lego-ble-wireless-protocol-docs/index.html#output-sub-command-tiltconfigimpact-impactthreshold-bumpholdoff-n-a
 
+class TiltSensor(GenericTiltSensor):
+    def __init__(self, parent, port):
+        super(TiltSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TILT
+
+class MoveHubTiltSensor(GenericTiltSensor):
+    def __init__(self, parent, port):
+        super(MoveHubTiltSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_MOVE_HUB_TILT
 
 class VisionSensor(Peripheral):
     COLOR_INDEX = 0x00
@@ -549,28 +818,30 @@ class VisionSensor(Peripheral):
 
     def __init__(self, parent, port):
         super(VisionSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_VISION_SENSOR
 
-    def subscribe(self, callback, mode=COLOR_DISTANCE_FLOAT, granularity=1):
-        super(VisionSensor, self).subscribe(callback, mode, granularity)
+    def subscribe(self, callback, mode=COLOR_DISTANCE_FLOAT, update_delta=1):
+        super(VisionSensor, self).subscribe(callback, mode, update_delta)
 
     def _decode_port_data(self, msg):
         data = msg.payload
         if self._port_mode.mode == self.COLOR_INDEX:
             color = usbyte(data, 0)
             return (color,)
+        elif self._port_mode.mode == self.DISTANCE_INCHES:
+            distance = usbyte(data, 0)
+            return (distance,)
         elif self._port_mode.mode == self.COLOR_DISTANCE_FLOAT:
             color = usbyte(data, 0)
-            val = usbyte(data, 1)
+            distance = usbyte(data, 1)
             partial = usbyte(data, 3)
             if partial:
-                val += 1.0 / partial
-            return (color, float(val))
-        elif self._port_mode.mode == self.DISTANCE_INCHES:
-            val = usbyte(data, 0)
-            return (val,)
+                distance = float(distance) + 1.0 / partial
+            #distance = math.floor(distance * 25.4) - 20 #TODO: check if correct
+            return (color, distance)
         elif self._port_mode.mode == self.DISTANCE_REFLECTED:
-            val = usbyte(data, 0) / 100.0
-            return (val,)
+            distance = usbyte(data, 0) / 100.0
+            return (distance,)
         elif self._port_mode.mode == self.AMBIENT_LIGHT:
             val = usbyte(data, 0) / 100.0
             return (val,)
@@ -589,7 +860,7 @@ class VisionSensor(Peripheral):
         elif self._port_mode.mode == self.CALIBRATE:
             return [ushort(data, x * 2) for x in range(8)]
         else:
-            log.debug("Unhandled VisionSensor data in mode %s: %s", self._port_mode.mode, str2hex(data))
+            log.debug("Unsupported VisionSensor mode %s with data: %s", self._port_mode.mode, str2hex(data))
             return ()
 
     def set_color(self, color):
@@ -614,44 +885,335 @@ class VisionSensor(Peripheral):
         self._send_output(msg)
 
 
-class Voltage(Peripheral):
-    # sensor says there are "L" and "S" values, but what are they?
+class DuploTrainColorSensor(Peripheral):
+
+    MODE_COLOR = 0x00
+    MODE_REFLECTIVITY = 0x02
+    MODE_RGB = 0x03
+
+    def __init__(self, parent, port):
+        super(DuploTrainColorSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_COLOR_SENSOR
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_COLOR:
+            #Emits when color sensor is activated
+            color = usbyte(data, 0)
+            return (color,)
+        elif self._port_mode.mode == self.MODE_REFLECTIVITY:
+            #Emits when light reflectivity changes; unit: % (0-100)
+            reflect = usbyte(data, 0)
+            return (reflect,)
+        elif self._port_mode.mode == self.MODE_RGB:
+            #Emits when light reflectivity changes (RGB)
+            red = ushort(data, 0)
+            green = ushort(data, 2)
+            blue = ushort(data, 4)
+            return (red,green,blue)
+        else:
+            log.debug("Got Duplo train color sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
+
+
+class DuploTrainBaseSpeaker(Peripheral):
+    MODE_SOUND = 0x01
+    MODE_TONE = 0x02
+
+    def __init__(self, parent, port):
+        super(DuploTrainBaseSpeaker, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_SPEAKER
+
+    def play_sound(self, sound):
+        self.set_port_mode(self.MODE_SOUND)
+        payload = pack("<B", self.MODE_SOUND) + pack("<B", sound)
+
+        msg = MsgPortOutput(self.port, MsgPortOutput.WRITE_DIRECT_MODE_DATA, payload)
+        self._send_output(msg)
+
+    def play_tone(self, tone):
+        self.set_port_mode(self.MODE_TONE)
+        payload = pack("<B", self.MODE_TONE) + pack("<B", tone)
+
+        msg = MsgPortOutput(self.port, MsgPortOutput.WRITE_DIRECT_MODE_DATA, payload)
+        self._send_output(msg)
+
+
+class DuploTrainBaseSpeedometer(Peripheral):
+
+    MODE_SPEED = 0x00
+
+    def __init__(self, parent, port):
+        super(DuploTrainBaseSpeedometer, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_SPEEDOMETER
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_SPEED:
+            #Emits on speed change
+            speed = sshort(data, 0)
+            return (speed,)
+        else:
+            log.debug("Got Duplo train base speedometer data while in unexpected mode: %r", self._port_mode)
+            return ()
+
+
+class TechnicColorSensor(Peripheral):
+
+    MODE_COLOR = 0x00
+    MODE_REFLECTIVITY = 0x01
+    MODE_AMBIENT_LIGHT = 0x02
+
+    def __init__(self, parent, port):
+        super(TechnicColorSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_COLOR_SENSOR
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_COLOR:
+            #Emits when color sensor is activated
+            color = usbyte(data, 0)
+            if color <= 10:
+                return (color,)
+        elif self._port_mode.mode == self.MODE_REFLECTIVITY:
+            #Emits when light reflectivity changes; unit: % (0-100)
+            reflect = usbyte(data, 0)
+            return (reflect,)
+        elif self._port_mode.mode == self.MODE_AMBIENT_LIGHT:
+            #Emits when ambient light changes; unit: % (0-100)
+            ambient = usbyte(data, 0)
+            return (ambient,)
+        else:
+            log.debug("Got Technic color sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
+
+
+class TechnicDistanceSensor(Peripheral):
+
+    MODE_DISTANCE = 0x00
+    MODE_FAST_DISTANCE = 0x01
+
+    SET_BRIGHTNESS = 0x05
+
+    def __init__(self, parent, port):
+        super(TechnicDistanceSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_DISTANCE_SENSOR
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_DISTANCE:
+            #Emits when detected distance changes (slow samplint 40mm to 2500mm)
+            distance = ushort(data, 0)
+            return (distance,)
+        elif self._port_mode.mode == self.MODE_FAST_DISTANCE:
+            #Emits when detected distance changes (fast samplint 50mm to 320mm)
+            distance = ushort(data, 0)
+            return (distance,)
+        else:
+            log.debug("Got Technic distance sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
+
+    def set_brightness(self, brightness_top_left, brightness_bottom_left, brightness_top_right, brightness_bottom_right):
+        '''
+        Sets brightness around the eyes.
+        '''
+        self.set_port_mode(self.SET_BRIGHTNESS)
+        payload = pack("<B", self.SET_BRIGHTNESS) + pack("<B", brightness_top_left) + pack("<B", brightness_top_right) + pack("<B", brightness_bottom_left) + pack("<B", brightness_bottom_right)
+
+        msg = MsgPortOutput(self.port, MsgPortOutput.WRITE_DIRECT_MODE_DATA, payload)
+        self._send_output(msg)
+        
+
+class TechnicForceSensor(Peripheral):
+
+    MODE_FORCE = 0x00
+    MODE_TOUCHED = 0x01
+    MODE_TAPPED = 0x02
+
+    def __init__(self, parent, port):
+        super(TechnicForceSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_FORCE_SENSOR
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_FORCE:
+            #Unit: Newtons (0-10)
+            force = usbyte(data, 0)
+            return (force,)
+        elif self._port_mode.mode == self.MODE_TOUCHED:
+            #Unit: bool
+            touched = True if usbyte(data, 0) else False
+            return (touched,)
+        elif self._port_mode.mode == self.MODE_TAPPED:
+            #Unit: scale (0-3)
+            tapped = usbyte(data, 0)
+            return (tapped,)
+        else:
+            log.debug("Got Technic force sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
+
+
+class MotionSensor(Peripheral):
+
+    MODE_DISTANCE = 0x00
+
+    def __init__(self, parent, port):
+        super(MotionSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_MOTION_SENSOR
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_DISTANCE:
+            #Measures distance; unit: millimeters
+            distance = usbyte(data, 0)
+            if usbyte(data, 1) == 1:
+                distance += 255
+            distance *= 10
+            return (distance,)
+        else:
+            log.debug("Got motion sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
+            
+
+_MAX_VOLTAGE_VAL = {
+    HubType.UNKNOWN_HUB: 9.615,
+    HubType.WEDO2_SMART_HUB: 1,
+    HubType.DUPLO_TRAIN_BASE: 6.4,
+    HubType.POWERED_UP_REMOTE_CONTROL: 6.4,
+}
+
+_MAX_VOLTAGE_RAW = {
+    HubType.UNKNOWN_HUB: 3893,
+    HubType.WEDO2_SMART_HUB: 40,
+    HubType.DUPLO_TRAIN_BASE: 3047,
+    HubType.POWERED_UP_REMOTE_CONTROL: 3200,
+    HubType.TECHNIC_HUB: 4095,
+
+}
+
+class VoltageSensor(Peripheral):
+    #TODO: sensor says there are "L" and "S" values, but what are they?
     VOLTAGE_L = 0x00
     VOLTAGE_S = 0x01
 
     def __init__(self, parent, port):
-        super(Voltage, self).__init__(parent, port)
+        super(VoltageSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_VOLTAGE
 
     def _decode_port_data(self, msg):
         data = msg.payload
         val = ushort(data, 0)
-        volts = 9600.0 * val / 3893.0 / 1000.0
+        v = _MAX_VOLTAGE_VAL[self.hub.type] if self.hub.type in _MAX_VOLTAGE_VAL else _MAX_VOLTAGE_VAL[HubType.UNKNOWN_HUB]
+        r = _MAX_VOLTAGE_RAW[self.hub.type] if self.hub.type in _MAX_VOLTAGE_RAW else _MAX_VOLTAGE_RAW[HubType.UNKNOWN_HUB]
+        volts = v * val / r
         return (volts,)
 
 
-class Current(Peripheral):
+_MAX_CURRENT_VAL = {
+    HubType.UNKNOWN_HUB: 2444,
+    HubType.WEDO2_SMART_HUB: 1,
+    HubType.TECHNIC_HUB: 4175,
+}
+
+_MAX_CURRENT_RAW = {
+    HubType.UNKNOWN_HUB: 4095,
+    HubType.WEDO2_SMART_HUB: 1000,
+    HubType.TECHNIC_HUB: 4095,
+
+}
+
+class CurrentSensor(Peripheral):
+    #TODO: sensor says there are "L" and "S" values, but what are they?
     CURRENT_L = 0x00
     CURRENT_S = 0x01
 
     def __init__(self, parent, port):
-        super(Current, self).__init__(parent, port)
+        super(CurrentSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_CURRENT
 
     def _decode_port_data(self, msg):
         val = ushort(msg.payload, 0)
-        milliampers = 2444 * val / 4095.0
-        return (milliampers,)
+        v = _MAX_CURRENT_VAL[self.hub.type] if self.hub.type in _MAX_CURRENT_VAL else _MAX_CURRENT_VAL[HubType.UNKNOWN_HUB]
+        r = _MAX_CURRENT_RAW[self.hub.type] if self.hub.type in _MAX_CURRENT_RAW else _MAX_CURRENT_RAW[HubType.UNKNOWN_HUB]
+        milliampers = v * val / r
+        return (milliampers,)       
+
+
+class TechnicHubTemperatureSensor(Peripheral):
+
+    MODE_TEMPERATURE = 0x00
+
+    def __init__(self, parent, port):
+        super(TechnicHubTemperatureSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_TEMPERATURE_SENSOR
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_TEMPERATURE:            
+            #Emits when temperature changes by requested delta
+            temperature = sshort(data, 0) * 0.1 #TODO: Is this correct?
+            return (temperature,)
+        else:
+            log.debug("Got Technic hub temperature sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
+
+
+class TechnicHubGestSensor(Peripheral):
+    #TODO: What is this sensor?!
+
+    MODE_GEST = 0x00
+
+    def __init__(self, parent, port):
+        super(TechnicHubGestSensor, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_GEST_SENSOR
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_GEST:
+            #Emits when ???
+            print("DEBUG: TechnicHubGestSensor: ", len(data)) #DEBUG
+            temperature = usbyte(data, 0) #TODO: Is this correct?
+            return (temperature,)
+        else:
+            log.debug("Got Technic hub gest sensor data while in unexpected mode: %r", self._port_mode)
+            return ()
+
+class RemoteControlButton(Peripheral):
+
+    MODE_BUTTON_EVENT = 0x00
+
+    BUTTON_UP = 0x01
+    BUTTON_DOWN = 0xFF
+    BUTTON_STOP = 0x7F
+    BUTTON_RELEASED = 0x00
+
+    def __init__(self, parent, port):
+        super(RemoteControlButton, self).__init__(parent, port)
+        self.type = MsgHubAttachedIO.DEV_REMOTE_CONTROL_BUTTON
+
+    def _decode_port_data(self, msg):
+        data = msg.payload
+        if self._port_mode.mode == self.MODE_BUTTON_EVENT:
+            #Emits when button on the remote is pressed/released
+            event = usbyte(data, 0)
+            return (event,)
+        else:
+            log.debug("Got remote control button data while in unexpected mode: %r", self._port_mode)
+            return ()
 
 
 class Button(Peripheral):
     """
-    It's not really a peripheral, we use MSG_DEVICE_INFO commands to interact with it
+    It's not really a peripheral, we use MsgHubProperties commands to interact with it.
+    Ref. button state in MsgHubProperties.BUTTON_STATE_<X>
     """
 
     def __init__(self, parent):
-        super(Button, self).__init__(parent, 0)  # fake port 0
+        super(Button, self).__init__(parent, None)  # fake port 0 -> JK: None
         self.hub.add_message_handler(MsgHubProperties, self._props_msg)
+        self.type = MsgHubAttachedIO.DEV_UNKNOWN
 
-    def subscribe(self, callback, mode=None, granularity=1):
+    def subscribe(self, callback, mode=None, update_delta=1):
         self.hub.send(MsgHubProperties(MsgHubProperties.BUTTON, MsgHubProperties.UPD_ENABLE))
 
         if callback:
@@ -670,3 +1232,43 @@ class Button(Peripheral):
         """
         if msg.property == MsgHubProperties.BUTTON and msg.operation == MsgHubProperties.UPSTREAM_UPDATE:
             self._notify_subscribers(usbyte(msg.parameters, 0))
+
+
+#-------------------------------------------------------------------------
+
+PERIPHERAL_TYPES = {
+    MsgHubAttachedIO.DEV_UNKNOWN: None,
+    MsgHubAttachedIO.DEV_SIMOLE_MEDIUM_LINEAR_MOTOR: SimpleMediumLinearMotor,
+    MsgHubAttachedIO.DEV_SYSTEM_TRAIN_MOTOR: SystemTrainMotor,
+    MsgHubAttachedIO.DEV_LED_LIGHT: LEDLight,
+    MsgHubAttachedIO.DEV_VOLTAGE: VoltageSensor,
+    MsgHubAttachedIO.DEV_CURRENT: CurrentSensor,
+    MsgHubAttachedIO.DEV_PIEZO_SOUND: None, #WeDo2's built-in buzzer; NOT supported!!! 
+    MsgHubAttachedIO.DEV_RGB_LIGHT: LEDRGB, #HUB LED
+    MsgHubAttachedIO.DEV_TILT: TiltSensor,
+    MsgHubAttachedIO.DEV_MOTION_SENSOR: MotionSensor,
+    MsgHubAttachedIO.DEV_VISION_SENSOR: VisionSensor, #Color distance senesor
+    MsgHubAttachedIO.DEV_MEDIUM_LINEAR_MOTOR: MediumLinearMotor,
+    MsgHubAttachedIO.DEV_MOVE_HUB_MEDIUM_LINEAR_MOTOR: MoveHubMediumLinearMotor, #Move Hub medium linear motor
+    MsgHubAttachedIO.DEV_MOVE_HUB_TILT: MoveHubTiltSensor, #Move Hub tilt sensor
+    MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_MOTOR: DuploTrainBaseMotor,
+    MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_SPEAKER: DuploTrainBaseSpeaker,
+    MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_COLOR_SENSOR: DuploTrainColorSensor,
+    MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_SPEEDOMETER: DuploTrainBaseSpeedometer,
+    MsgHubAttachedIO.DEV_TECHNIC_LARGE_LINEAR_MOTOR: TechnicLargeLinearMotor, #Technic Control+
+    MsgHubAttachedIO.DEV_TECHNIC_XLARGE_LINEAR_MOTOR: TechnicXLargeLinearMotor, #Technic Control+
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_ANGULAR_MOTOR: TechnicMediumAngularMotor, #Spike Prime
+    MsgHubAttachedIO.DEV_TECHNIC_LARGE_ANGULAR_MOTOR: TechnicLargeAngularMotor, #Spike Prime
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_GEST_SENSOR: TechnicHubGestSensor, #What is this?
+    MsgHubAttachedIO.DEV_REMOTE_CONTROL_BUTTON: RemoteControlButton,
+    MsgHubAttachedIO.DEV_REMOTE_CONTROL_RSSI: None, #What is this?
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_ACCELEROMETER: TechnicHubAccelerometerSensor,
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_GYRO_SENSOR: TechnicHubGyroSensor,
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_TILT_SENSOR: TechnicHubTiltSensor,
+    MsgHubAttachedIO.DEV_TECHNIC_MEDIUM_HUB_TEMPERATURE_SENSOR: TechnicHubTemperatureSensor,
+    MsgHubAttachedIO.DEV_TECHNIC_COLOR_SENSOR: TechnicColorSensor, #Spike Prime
+    MsgHubAttachedIO.DEV_TECHNIC_DISTANCE_SENSOR: TechnicDistanceSensor, #Spike Prime
+    MsgHubAttachedIO.DEV_TECHNIC_FORCE_SENSOR: TechnicForceSensor #Spike Prime
+}
+
+#-------------------------------------------------------------------------
