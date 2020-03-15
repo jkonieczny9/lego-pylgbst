@@ -8,21 +8,12 @@ Best way to start is to look into [`demo.py`](examples/demo.py) file, and run it
 
 If you have Vernie assembled, you might run scripts from [`examples/vernie`](examples/vernie) directory.
 
-## Demonstrational Videos
-
-[![Vernie Programmed](http://img.youtube.com/vi/oqsmgZlVE8I/0.jpg)](http://www.youtube.com/watch?v=oqsmgZlVE8I)
-[![Laser Engraver](http://img.youtube.com/vi/ZbKmqVBBMhM/0.jpg)](https://youtu.be/ZbKmqVBBMhM)
-[![Color Sorter](http://img.youtube.com/vi/829RKT8v8M0/0.jpg)](https://youtu.be/829RKT8v8M0)
-[![Face Tracker](http://img.youtube.com/vi/WUOa3j-6XfI/0.jpg)](https://youtu.be/WUOa3j-6XfI)
-[![Color Pin Bot](http://img.youtube.com/vi/QY6nRYXQw_U/0.jpg)](https://youtu.be/QY6nRYXQw_U)
-[![BB-8 Joystick](http://img.youtube.com/vi/55kE9I4IQSU/0.jpg)](https://youtu.be/55kE9I4IQSU)
-
-
 ## Features
 
+- auto-detect and connect to [Techni Hub/Control+] (docs/TechnicHub.md) device
 - auto-detect and connect to [Move Hub](docs/MoveHub.md) device
 - auto-detects [peripheral devices](docs/Peripherals.md) connected to Hub
-- constant, angled and timed movement for [motors](docs/Motor.md), rotation sensor subscription
+- constant, angled, timed and abs-angled movement for [motors](docs/Motor.md), rotation sensor subscription
 - [vision sensor](docs/VisionSensor.md): several modes to measure distance, color and luminosity
 - [tilt sensor](docs/TiltSensor.md) subscription: 2 axis, 3 axis, bump detect modes
 - [RGB LED](docs/LED.md) color change
