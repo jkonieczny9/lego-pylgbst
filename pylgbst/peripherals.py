@@ -804,7 +804,7 @@ class MoveHubTiltSensor(GenericTiltSensor):
 
 class VisionSensor(Peripheral):
     COLOR_INDEX = 0x00
-    DISTANCE_INCHES = 0x01
+    DISTANCE = 0x01
     COUNT_2INCH = 0x02
     DISTANCE_REFLECTED = 0x03
     AMBIENT_LIGHT = 0x04
@@ -826,18 +826,25 @@ class VisionSensor(Peripheral):
     def _decode_port_data(self, msg):
         data = msg.payload
         if self._port_mode.mode == self.COLOR_INDEX:
-            color = usbyte(data, 0)
+            #Color index
+            color = usbyte(data, 0)            
+            if color > 10:
+                color = None
             return (color,)
-        elif self._port_mode.mode == self.DISTANCE_INCHES:
-            distance = usbyte(data, 0)
+        elif self._port_mode.mode == self.DISTANCE:
+            #Distance in millimiters
+            distance = math.floor(usbyte(data, 0) * 25.4) - 20 #TODO: check if correct
             return (distance,)
         elif self._port_mode.mode == self.COLOR_DISTANCE_FLOAT:
+            #Color index + distance in millimiters
             color = usbyte(data, 0)
+            if color > 10:
+                color = None
             distance = usbyte(data, 1)
             partial = usbyte(data, 3)
             if partial:
                 distance = float(distance) + 1.0 / partial
-            #distance = math.floor(distance * 25.4) - 20 #TODO: check if correct
+            distance = math.floor(distance * 25.4) - 20 #TODO: check if correct
             return (color, distance)
         elif self._port_mode.mode == self.DISTANCE_REFLECTED:
             distance = usbyte(data, 0) / 100.0
@@ -868,7 +875,7 @@ class VisionSensor(Peripheral):
             color = COLOR_BLACK
 
         if color not in COLORS:
-            raise ValueError("Color %s is not in list of available colors" % color)
+            raise ValueError("Color %s is not in the list of available colors" % color)
 
         self.set_port_mode(self.SET_COLOR)
         payload = pack("<B", self.SET_COLOR) + pack("<B", color)
@@ -975,6 +982,8 @@ class TechnicColorSensor(Peripheral):
             color = usbyte(data, 0)
             if color <= 10:
                 return (color,)
+            else:
+                return ()
         elif self._port_mode.mode == self.MODE_REFLECTIVITY:
             #Emits when light reflectivity changes; unit: % (0-100)
             reflect = usbyte(data, 0)
