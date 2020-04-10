@@ -1,4 +1,5 @@
 import logging
+import time
 from struct import pack, unpack
 
 from pylgbst.utilities import str2hex
@@ -71,6 +72,7 @@ class UpstreamMsg(Message):
 
     def __init__(self):
         super(UpstreamMsg, self).__init__()
+        self.timestamp = None #Timestamp representing moment of decoding the message
 
     @classmethod
     def decode(cls, data):
@@ -78,6 +80,7 @@ class UpstreamMsg(Message):
         see https://lego.github.io/lego-ble-wireless-protocol-docs/#common-message-header
         """
         msg = cls()
+        msg.timestamp = time.time()
         msg.payload = data
         msglen = msg._byte()
         if msglen > 127:
@@ -300,7 +303,7 @@ class MsgHubAttachedIO(UpstreamMsg):
     DEV_RGB_LIGHT = 0x0017 #HUB LED
     DEV_TILT = 0x0022
     DEV_MOTION_SENSOR = 0x0023
-    DEV_VISION_SENSOR = 0x0025 #Color distance senesor
+    DEV_VISION_SENSOR = 0x0025 #Color distance sensor
     DEV_MEDIUM_LINEAR_MOTOR = 0x0026
     DEV_MOVE_HUB_MEDIUM_LINEAR_MOTOR = 0x0027 #Move Hub medium linear motor
     DEV_MOVE_HUB_TILT = 0x0028 #Move Hub tilt sensor
