@@ -5,7 +5,7 @@ from struct import pack, unpack
 from threading import Thread
 
 from pylgbst.messages import MsgHubProperties, MsgHubAttachedIO, MsgPortOutput, MsgPortInputFmtSetupSingle, MsgPortInfoRequest, MsgPortModeInfoRequest, MsgPortInfo, MsgPortModeInfo, MsgPortInputFmtSingle
-from pylgbst.utilities import queue, str2hex, usbyte, ushort, usint, sbyte, sshort, sint, sfloat, sdouble
+from pylgbst.utilities import queue, hex2int, str2hex, usbyte, ushort, usint, sbyte, sshort, sint, sfloat, sdouble
 from pylgbst.hub import HubType
 
 #-------------------------------------------------------------------------
@@ -62,6 +62,8 @@ COLOR_ORANGE = 0x08
 COLOR_RED = 0x09
 COLOR_WHITE = 0x0a
 COLOR_NONE = 0xFF
+
+COLOR_MAX_INDEX = COLOR_WHITE
 
 COLORS = {
     COLOR_BLACK: "BLACK",
@@ -803,7 +805,7 @@ class MoveHubTiltSensor(GenericTiltSensor):
         self.type = MsgHubAttachedIO.DEV_MOVE_HUB_TILT
 
 class VisionSensor(Peripheral):
-    COLOR_INDEX = 0x00
+    COLOR = 0x00
     DISTANCE = 0x01
     COUNT_2INCH = 0x02
     DISTANCE_REFLECTED = 0x03
@@ -811,7 +813,7 @@ class VisionSensor(Peripheral):
     SET_COLOR = 0x05
     COLOR_RGB = 0x06
     SET_IR_TX = 0x07
-    COLOR_DISTANCE_FLOAT = 0x08  # it's not declared by dev's mode info
+    COLOR_AND_DISTANCE = 0x08  # it's not declared by dev's mode info
 
     DEBUG = 0x09  # first val is by fact ambient light, second is zero
     CALIBRATE = 0x0a  # gives constant values
@@ -820,31 +822,32 @@ class VisionSensor(Peripheral):
         super(VisionSensor, self).__init__(parent, port)
         self.type = MsgHubAttachedIO.DEV_VISION_SENSOR
 
-    def subscribe(self, callback, mode=COLOR_DISTANCE_FLOAT, update_delta=1):
+    def subscribe(self, callback, mode=COLOR_AND_DISTANCE, update_delta=1):
         super(VisionSensor, self).subscribe(callback, mode, update_delta)
 
     def _decode_port_data(self, msg):
         data = msg.payload
-        if self._port_mode.mode == self.COLOR_INDEX:
+        #print("DEBUG: data=%s" % str2hex(data)) #DEBUG
+        if self._port_mode.mode == self.COLOR:
             #Color index
-            color = usbyte(data, 0)            
-            if color > 10:
+            color = usbyte(data, 0)
+            if color > COLOR_MAX_INDEX:
                 color = None
             return (color,)
         elif self._port_mode.mode == self.DISTANCE:
             #Distance in millimiters
-            distance = math.floor(usbyte(data, 0) * 25.4) - 20 #TODO: check if correct
+            distance = round(usbyte(data, 0) * 25.4) #TODO: check if correct (distance-=20 ?!)
             return (distance,)
-        elif self._port_mode.mode == self.COLOR_DISTANCE_FLOAT:
+        elif self._port_mode.mode == self.COLOR_AND_DISTANCE:
             #Color index + distance in millimiters
             color = usbyte(data, 0)
-            if color > 10:
+            if color > COLOR_MAX_INDEX:
                 color = None
             distance = usbyte(data, 1)
             partial = usbyte(data, 3)
-            if partial:
+            if partial > 0:
                 distance = float(distance) + 1.0 / partial
-            distance = math.floor(distance * 25.4) - 20 #TODO: check if correct
+            distance = round(distance * 25.4) #TODO: check if correct (distance-=20 ?!)
             return (color, distance)
         elif self._port_mode.mode == self.DISTANCE_REFLECTED:
             distance = usbyte(data, 0) / 100.0
@@ -871,7 +874,7 @@ class VisionSensor(Peripheral):
             return ()
 
     def set_color(self, color):
-        if color == COLOR_NONE:
+        if color is None or color == COLOR_NONE:
             color = COLOR_BLACK
 
         if color not in COLORS:

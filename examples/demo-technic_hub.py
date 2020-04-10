@@ -6,7 +6,7 @@ import sys, os
 sys.path.insert(0, os.environ.get('PYLGBST_ROOT'))
 
 from pylgbst import *
-from pylgbst.peripherals import BasicMotor, TiltSensor, CurrentSensor, VoltageSensor, COLORS, COLOR_BLACK
+from pylgbst.peripherals import BasicMotor, TiltSensor, CurrentSensor, VoltageSensor, VisionSensor, COLORS, COLOR_BLACK
 from pylgbst.hub import HubType, HUB_NAMES, TechnicHub
 from pylgbst.messages import MsgHubAttachedIO
 
@@ -77,16 +77,36 @@ def demo_color_sensor(hub):
     demo_color_sensor.cnt = 0
     limit = 20
 
-    def callback(color, distance=None):
+    def callback_color(color):
         demo_color_sensor.cnt += 1
-        log.info("#%s/%s: Color %s, distance %s", demo_color_sensor.cnt, limit, COLORS[color], distance)
+        log.info("#%s/%s: Color %s", demo_color_sensor.cnt, limit, COLORS[color] if color is not None else "none")
+
+    def callback_distance(distance):
+        demo_color_sensor.cnt += 1
+        log.info("#%s/%s: Distance %s", demo_color_sensor.cnt, limit, distance)
+
+    def callback_color_distance(color, distance=None):
+        demo_color_sensor.cnt += 1
+        log.info("#%s/%s: Color %s, distance %s", demo_color_sensor.cnt, limit, COLORS[color] if color is not None else "none", distance)
+
+    mode = VisionSensor.COLOR_AND_DISTANCE
+    if mode == VisionSensor.COLOR:
+        fcbck = callback_color
+    elif mode == VisionSensor.DISTANCE:
+        fcbck = callback_distance
+    elif mode == VisionSensor.COLOR_AND_DISTANCE:
+        fcbck = callback_color_distance
+    else:
+        assert(0)
 
     hub_vision = hub.get_devices_by_type(MsgHubAttachedIO.DEV_VISION_SENSOR)
-    hub_vision.subscribe(callback)
+    assert(len(hub_vision) > 0)
+    hub_vision = hub_vision[0]
+    hub_vision.subscribe(callback=fcbck, mode=mode)
     while demo_color_sensor.cnt < limit:
         time.sleep(1)
 
-    hub_vision.unsubscribe(callback)
+    hub_vision.unsubscribe(fcbck)
 
 
 def demo_motor_sensors(hub):
