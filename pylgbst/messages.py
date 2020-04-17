@@ -294,7 +294,7 @@ class MsgHubAttachedIO(UpstreamMsg):
 
     # DEVICE TYPES
     DEV_UNKNOWN = 0x0000
-    DEV_SIMOLE_MEDIUM_LINEAR_MOTOR = 0x0001
+    DEV_SIMPLE_MEDIUM_LINEAR_MOTOR = 0x0001 #Powered Up medium motor
     DEV_SYSTEM_TRAIN_MOTOR = 0x0002
     DEV_LED_LIGHT = 0x0008
     DEV_VOLTAGE = 0x0014
@@ -304,7 +304,7 @@ class MsgHubAttachedIO(UpstreamMsg):
     DEV_TILT = 0x0022
     DEV_MOTION_SENSOR = 0x0023
     DEV_VISION_SENSOR = 0x0025 #Color distance sensor
-    DEV_MEDIUM_LINEAR_MOTOR = 0x0026
+    DEV_MEDIUM_LINEAR_MOTOR = 0x0026 #Boost External motor
     DEV_MOVE_HUB_MEDIUM_LINEAR_MOTOR = 0x0027 #Move Hub medium linear motor
     DEV_MOVE_HUB_TILT = 0x0028 #Move Hub tilt sensor
     DEV_DUPLO_TRAIN_BASE_MOTOR = 0x0029

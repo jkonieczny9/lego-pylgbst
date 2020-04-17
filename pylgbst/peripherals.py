@@ -16,7 +16,7 @@ log = logging.getLogger('peripherals')
 
 PERIPHERAL_NAMES = {
     MsgHubAttachedIO.DEV_UNKNOWN: "Unknown",
-    MsgHubAttachedIO.DEV_SIMOLE_MEDIUM_LINEAR_MOTOR: "Simple Medium Linear Motor",
+    MsgHubAttachedIO.DEV_SIMPLE_MEDIUM_LINEAR_MOTOR: "Simple Medium Linear Motor",
     MsgHubAttachedIO.DEV_SYSTEM_TRAIN_MOTOR: "System Train Motor",
     MsgHubAttachedIO.DEV_LED_LIGHT: "LED Light",
     MsgHubAttachedIO.DEV_VOLTAGE: "Voltage Sensor",
@@ -606,7 +606,7 @@ class AbsMotor(TachoMotor):
 class SimpleMediumLinearMotor(BasicMotor):
     def __init__(self, parent, port):
         super(SimpleMediumLinearMotor, self).__init__(parent, port)
-        self.type = MsgHubAttachedIO.DEV_SIMOLE_MEDIUM_LINEAR_MOTOR
+        self.type = MsgHubAttachedIO.DEV_SIMPLE_MEDIUM_LINEAR_MOTOR
 
 class SystemTrainMotor(BasicMotor):
     def __init__(self, parent, port):
@@ -1250,7 +1250,7 @@ class Button(Peripheral):
 
 PERIPHERAL_TYPES = {
     MsgHubAttachedIO.DEV_UNKNOWN: None,
-    MsgHubAttachedIO.DEV_SIMOLE_MEDIUM_LINEAR_MOTOR: SimpleMediumLinearMotor,
+    MsgHubAttachedIO.DEV_SIMPLE_MEDIUM_LINEAR_MOTOR: SimpleMediumLinearMotor, #Powered Up medium motor
     MsgHubAttachedIO.DEV_SYSTEM_TRAIN_MOTOR: SystemTrainMotor,
     MsgHubAttachedIO.DEV_LED_LIGHT: LEDLight,
     MsgHubAttachedIO.DEV_VOLTAGE: VoltageSensor,
@@ -1260,7 +1260,7 @@ PERIPHERAL_TYPES = {
     MsgHubAttachedIO.DEV_TILT: TiltSensor,
     MsgHubAttachedIO.DEV_MOTION_SENSOR: MotionSensor,
     MsgHubAttachedIO.DEV_VISION_SENSOR: VisionSensor, #Color distance senesor
-    MsgHubAttachedIO.DEV_MEDIUM_LINEAR_MOTOR: MediumLinearMotor,
+    MsgHubAttachedIO.DEV_MEDIUM_LINEAR_MOTOR: MediumLinearMotor, #Boost External motor
     MsgHubAttachedIO.DEV_MOVE_HUB_MEDIUM_LINEAR_MOTOR: MoveHubMediumLinearMotor, #Move Hub medium linear motor
     MsgHubAttachedIO.DEV_MOVE_HUB_TILT: MoveHubTiltSensor, #Move Hub tilt sensor
     MsgHubAttachedIO.DEV_DUPLO_TRAIN_BASE_MOTOR: DuploTrainBaseMotor,
